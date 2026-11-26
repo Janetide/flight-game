@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const SHELL =
-  process.env.CHROME_HEADLESS_SHELL ??
   '/home/hatch/.cache/ms-playwright/chromium_headless_shell-1187/chrome-linux/headless_shell';
 const PORT = 8123;
 const SHOTS = [
