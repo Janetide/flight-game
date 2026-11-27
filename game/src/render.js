@@ -4,7 +4,7 @@
 // so the view is always the view from the cockpit of the moment.
 
 import { RUNWAY, RUNWAY_COLOR, RING_COLOR, RING_NEXT, SKY_HORIZON, SKY_TOP, SUN_COLOR } from './config.js';
-import { groundColor, groundHeight } from './terrain.js';
+import { groundColor, groundHeight, lakeAt, onRunway, riverX } from './terrain.js';
 import { cameraFor, drawPlaneChase, planeScreenPos } from './aircraft.js';
 import { fbm } from './random.js';
 
@@ -63,13 +63,14 @@ export function renderScene(ctx, w, h, plane, world, time, cameraMode) {
   const cam = cameraFor(plane, cameraMode);
   drawSky(ctx, w, h, cam, time);
   drawTerrainCarpet(ctx, w, h, cam, focal);
-  drawRunway(ctx, w, h, cam, focal);
+  drawRiver(ctx, w, h, cam, focal);
+  drawRunway(ctx, w, h, cam, focal, plane);
   drawTreesAndHouses(ctx, w, h, cam, focal, world.scenery);
   drawClouds(ctx, w, h, cam, focal, world.scenery.clouds, time);
   drawRings(ctx, w, h, cam, focal, world.rings, world.nextRing);
   if (cameraMode === 'chase') {
     const pos = planeScreenPos(w, h);
-    const scale = Math.min(w, h) / 760;
+    const scale = Math.min(w, h) / 620;
     drawPlaneChase(ctx, pos.x, pos.y, plane.roll, scale, time, plane.throttle);
   }
 }
@@ -149,7 +150,13 @@ function drawTerrainCarpet(ctx, w, h, cam, focal) {
       const midX = (a.wx + b.wx + c.wx + d2.wx) / 4;
       const midZ = (a.wz + b.wz + c.wz + d2.wz) / 4;
       const field = fbm(midX * 0.0016 + 3, midZ * 0.0016 + 7, 5, 2) * 0.16;
-      ctx.fillStyle = fog(shade(groundColor(midH, midSlope), field), a.d);
+      // Open water reads as water: the still lake is a blue patch in the
+      // meadow. The river is drawn as its own ribbon below (a thin
+      // feature painted quad-by-quad would read as floating slabs).
+      const base = lakeAt(midX, midZ)
+        ? shade('#4a90c2', field * 0.5 - 0.05)
+        : shade(groundColor(midH, midSlope), field);
+      ctx.fillStyle = fog(base, a.d);
       ctx.beginPath();
       ctx.moveTo(a.p.x, a.p.y);
       ctx.lineTo(b.p.x, b.p.y);
@@ -179,14 +186,46 @@ function drawTerrainCarpet(ctx, w, h, cam, focal) {
     }
     ctx.closePath();
     // Same patchwork as the carpet, so the near ground does not read as a
-    // flat strip below the quads.
+    // flat strip below the quads. Asphalt when the camera sits over the
+    // runway — on takeoff the ground right behind the plane is tarmac,
+    // not meadow.
     const fillField = fbm(cam.pos.x * 0.0016 + 3, cam.pos.z * 0.0016 + 7, 5, 2) * 0.16;
-    ctx.fillStyle = fog(shade(groundColor(130, 0.1), fillField), NEAR);
+    const fillBase = onRunway(cam.pos.x, cam.pos.z) ? RUNWAY_COLOR : shade(groundColor(130, 0.1), fillField);
+    ctx.fillStyle = fog(fillBase, NEAR);
     ctx.fill();
   }
 }
 
-function drawRunway(ctx, w, h, cam, focal) {
+/**
+ * The river as a ribbon that follows its channel: sample the centreline
+ * and stroke it segment by segment, so it winds with the valley instead
+ * of painting whole terrain quads blue.
+ */
+function drawRiver(ctx, w, h, cam, focal) {
+  // Save/restore: the ribbon sets a fat line width and round caps, and
+  // the HUD tapes stroke their tick marks afterwards without setting a
+  // width of their own — a leaked 46 px width turned every tick into a
+  // grey capsule (seen in the round-3 retakes).
+  ctx.save();
+  let prev = null;
+  for (let z = -4500; z <= 5200; z += 70) {
+    const x = riverX(z);
+    const p = project(cam, { x, y: groundHeight(x, z) + 1.0, z }, w, h, focal);
+    if (p && prev) {
+      ctx.strokeStyle = fog('#4a90c2', p.d);
+      ctx.lineWidth = Math.max(2, Math.min(46, (30 * focal) / p.d));
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(prev.x, prev.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    prev = p;
+  }
+  ctx.restore();
+}
+
+function drawRunway(ctx, w, h, cam, focal, plane) {
   const steps = 16;
   const half = RUNWAY.width / 2;
   const dir = { x: 0, z: -1 }; // runway points north
@@ -231,13 +270,18 @@ function drawRunway(ctx, w, h, cam, focal) {
     ctx.fill();
   }
   // Runway numbers at each end.
-  drawRunwayLabel(ctx, w, h, cam, focal, 0, RUNWAY.cz - RUNWAY.length / 2 + 60, '18');
-  drawRunwayLabel(ctx, w, h, cam, focal, 0, RUNWAY.cz + RUNWAY.length / 2 - 60, '36');
+  drawRunwayLabel(ctx, w, h, cam, focal, 0, RUNWAY.cz - RUNWAY.length / 2 + 60, '18', plane);
+  drawRunwayLabel(ctx, w, h, cam, focal, 0, RUNWAY.cz + RUNWAY.length / 2 - 60, '36', plane);
 }
 
-function drawRunwayLabel(ctx, w, h, cam, focal, x, z, text) {
+function drawRunwayLabel(ctx, w, h, cam, focal, x, z, text, plane) {
   const p = project(cam, { x: RUNWAY.cx + x, y: RUNWAY.elevation + 1, z }, w, h, focal);
   if (!p || p.d > 2600 || p.d < 150) return; // too far, or right under the plane
+  // Never paint the number on top of the aircraft: in chase view the plane
+  // sits at screen centre, and a threshold number projected there would
+  // read as if it were written on the fuselage.
+  const planePos = planeScreenPos(w, h);
+  if (Math.hypot(p.x - planePos.x, p.y - planePos.y) < 120) return;
   const size = Math.max(10, Math.min(30, 90000 / p.d));
   ctx.fillStyle = '#ffffff';
   ctx.font = `bold ${size}px system-ui, sans-serif`;
@@ -290,11 +334,15 @@ function drawClouds(ctx, w, h, cam, focal, clouds, time) {
     const p = project(cam, { x: c.x + drift, y: c.y, z: c.z }, w, h, focal);
     if (!p) continue;
     const r = Math.max(8, (c.r * focal) / p.d / 8);
+    // A cloud is a puff, not a pill: several overlapping ellipses at
+    // slightly different heights, so it has a top and a belly.
     ctx.fillStyle = 'rgba(255,255,255,0.82)';
     ctx.beginPath();
     ctx.ellipse(p.x, p.y, r, r * 0.42, 0, 0, Math.PI * 2);
     ctx.ellipse(p.x - r * 0.55, p.y + r * 0.08, r * 0.62, r * 0.3, 0, 0, Math.PI * 2);
     ctx.ellipse(p.x + r * 0.55, p.y + r * 0.06, r * 0.66, r * 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x - r * 0.2, p.y - r * 0.22, r * 0.55, r * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x + r * 0.25, p.y - r * 0.18, r * 0.5, r * 0.28, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -321,7 +369,7 @@ function drawRings(ctx, w, h, cam, focal, rings, nextIndex) {
       ctx.shadowBlur = 18;
     }
     ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(2, Math.min(10, 2600 / dist));
+    ctx.lineWidth = Math.max(3, Math.min(12, 3600 / dist));
     ctx.beginPath();
     let pen = false;
     for (const p of pts) {

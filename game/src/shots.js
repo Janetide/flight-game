@@ -39,47 +39,39 @@ export function stageShot(name, seed) {
   if (name === 'rings') {
     const mission = createMission(missionById('rings'), seed);
     const p = mission.plane;
-    // Line the plane up on the second ring: stand 380 m behind it on the
-    // leg from ring 1, heading straight at it, so the ring sits centred
-    // ahead with the valley behind it.
-    const target = mission.rings[1];
-    const from = mission.rings[0];
-    const legDx = target.x - from.x;
-    const legDz = target.z - from.z;
-    const legLen = Math.hypot(legDx, legDz);
-    const ux = legDx / legLen;
-    const uz = legDz / legLen;
-    p.x = target.x - ux * 380;
-    p.y = target.y - 12;
-    p.z = target.z - uz * 380;
-    p.heading = ((Math.atan2(ux, -uz) * 180) / Math.PI + 360) % 360;
-    p.pitch = 1;
-    p.roll = -4;
-    p.speed = 68;
-    p.throttle = 0.8;
+    // Hero moment: on final over the runway, gear down, with the first
+    // ring dead ahead beyond the strip — aircraft, runway and target ring
+    // in one frame, instead of a ring alone over empty green.
+    p.x = 60;
+    p.y = 205;
+    p.z = 850;
+    p.heading = 2;
+    p.pitch = -3;
+    p.roll = 1;
+    p.speed = 46;
+    p.throttle = 0.35;
     p.onGround = false;
-    mission.rings[0].passed = true;
-    mission.nextRing = 1;
-    mission.ringsPassed = 1;
-    mission.score = 250;
-    mission.timeFlown = 24;
+    p.gearDown = true;
+    mission.timeFlown = 150;
+    mission.score = 50;
     return { mission, cameraMode: 'chase' };
   }
   if (name === 'landing') {
     const mission = createMission(missionById('landing'), seed);
     const p = mission.plane;
-    // On final approach: gear down, slow, descending onto the numbers.
-    p.x = 60;
-    p.y = 210;
-    p.z = 1650;
+    // Low on final, wheels nearly down: the runway fills the frame and
+    // the valley, river and town read behind it.
+    p.x = 40;
+    p.y = 170;
+    p.z = 1200;
     p.heading = 2;
     p.pitch = -4;
     p.roll = 1;
-    p.speed = 46;
-    p.throttle = 0.32;
+    p.speed = 42;
+    p.throttle = 0.28;
     p.onGround = false;
     p.gearDown = true;
-    mission.timeFlown = 180;
+    mission.timeFlown = 190;
     mission.score = 50;
     return { mission, cameraMode: 'chase' };
   }

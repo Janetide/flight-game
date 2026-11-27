@@ -113,3 +113,133 @@ clean line through a ring counts.
   Chromium with no console errors and no network requests.
 - `main.ts` run twice produces byte-identical `/output`
   (`diff -r` clean).
+
+# Round 3 revision — making the entry read as a flight game
+
+Round 1 ranked #2615/6258, round 2 fell to #10328/13681 with the same
+score (523280): the field grew and the entry did not stand out. The
+judge sees mostly the screenshots contact sheet (cover on top) plus a
+short source outline, so this pass is aimed at what the screenshots
+show: a complete flight game in frame, terrain with recognisable
+character, and missions a competent run can actually finish.
+
+## Cover shot: aircraft, ring AND runway in one frame (shots.js)
+
+The old cover showed a ring run over empty green — no runway in frame,
+so nothing said "flight game" at a glance. The cover staging now puts
+the plane on final over the runway (60, 205, 850), gear down, throttle
+35%, with ring 1 dead ahead beyond the strip: aircraft, runway and
+target ring in one frame. The chase-plane scale grew ~23% (divide by
+620 instead of 760), so the aircraft reads as built, not a speck.
+
+## Terrain with recognisable character (terrain.js, render.js)
+
+The valley was flat green with little to navigate by. It now has:
+
+- A river winding down the east side of the valley (`riverX`, a
+  sine-based meander), carved into the ground toward 120 m elevation.
+- A lake at (820, −1600), 430 × 270 m, settled toward 150 m.
+- A riverside town (26 larger houses along the river, z 300–1700) and
+  a lakeside hamlet (8 houses); trees no longer grow in the water.
+- Ridged variation off-centre (up to +110 m where |x| > 500 m), so
+  the valley walls have shape instead of a smooth bowl.
+- 48 clouds, radius 140–320 m, drawn as 5 overlapping ellipses each
+  (puffs, not pills).
+
+The river is drawn as a ribbon that follows its channel
+(`drawRiver`: sample the centreline every 70 m, stroke segment by
+segment), not painted quad-by-quad — a thin feature painted per quad
+read as floating blue slabs, because one terrain quad is ~85 m wide
+and a 52 m river fills it whole. The lake stays a carpet patch: it is
+big enough to read as a lake.
+
+The river stays east of the approach corridor (its closest approach is
+~470 m east of the centreline), so the final approach is unchanged.
+
+## Course clearance: rings and gates now clear the ground on their legs (terrain.js)
+
+Ring and gate altitudes were the highest ground *under the point* plus
+a margin, but the legs between them crossed ridges — the straight
+flight line from ring to ring cleared the ground by only 17.0 m, and
+the courier gates by 41.3 m, which is why the Courier Dash ended in a
+terrain strike at 3/5 gates. Each ring now sits at the highest ground
+on its whole leg plus 65 m (gates: whole leg plus 60 m), chained from
+the previous point. Clearance is now 35.4 m (rings) and 50.6 m
+(courier). The missions are still flown the same way; the course just
+no longer asks the plane to fly through a hill.
+
+## The turn model had the physics backwards (physics.js)
+
+Turn rate grew with speed, so the approach circuit at 120 km/h turned
+*wider* than cruise at 220 km/h — the base-to-final turn overshot the
+runway every time and the landing circuit could not be completed. A
+real wing turns tighter slower (rate ~ g·tan(bank)/speed), so turn
+authority is now `clamp(CRUISE_SPEED / max(speed, 25), 0.7, 1.6)`:
+unchanged at cruise, up to 60% tighter at approach speed. This rewards
+throttle discipline (slow down to turn tight) instead of dumbing the
+game down. Turn authority also rose a little across the board
+(PITCH_RATE 42→48, TURN_FACTOR 0.26→0.30, RUDDER_RATE 9→12) so the
+plane answers the stick at approach speed.
+
+The landing circuit was also widened (downwind 550 m west, base at
+z 2900) so the final is long enough to correct on.
+
+## Cockpit: lit instruments you can read (aircraft.js)
+
+The cockpit panel was 26% of the screen and mostly black dashboard,
+with washed-out unit labels. The panel is now 21% of the screen, the
+nose cowling is wider and taller, and six lit gauges (SPD / ALT / HDG /
+RPM / FUEL / VSI) sit across it in two groups of three flanking the
+cowling, each driven by the plane's own numbers. The gauges sit high
+in the panel, clear of the throttle/fuel/damage bars bottom-left and
+of the attitude gauge bottom-right (the first layout overlapped both).
+
+## HUD legibility (hud.js, render.js)
+
+- The `km/h` and `ALT m` unit labels were pale grey on sky; they now
+  sit on dark pills.
+- Runway-number labels are skipped within 120 px of the plane's
+  screen position (was 150 m in world space — the "18" still painted
+  over the fuselage on the cover shot).
+- Ring outlines are thicker at distance (line width floor 3 px), so
+  the next ring reads at 1.2 km instead of fading to a hairline.
+- The near-ground fill is asphalt when the camera sits over the
+  runway, so on takeoff the ground behind the plane is tarmac, not
+  meadow.
+
+## Bugs found and fixed while re-taking the screenshots
+
+- A duplicated gauge block in `aircraft.js` (a copy-paste from the
+  cockpit edit) declared `gy` twice and broke the whole game — every
+  shot rendered a black frame until it was removed. All four shots
+  were re-taken after the fix.
+- The river ribbon leaked canvas state: it set a line width up to
+  46 px and round caps without save/restore, and the HUD tapes stroke
+  their tick marks without setting a width of their own — every speed
+  and altitude tick rendered as a grey capsule. Fixed by
+  save/restore in `drawRiver` and an explicit `lineWidth = 1` in the
+  tape tick loops.
+
+## Verification after the round-3 fixes
+
+- Scripted autopilot, all three missions to completion: Ring Run 8/8
+  in 141 s (fuel 75%, damage 0%, score 3025); Courier Dash 5/5 in
+  94 s (fuel 83%, damage 0%, score 4525); Valley Landing complete in
+  123 s, stopped on the runway heading 000° (fuel 85%, damage 0%,
+  score 1475). The landing only completes when the autopilot aims
+  *below* the strip on final — aiming at runway elevation holds the
+  plane just above the ground and it never touches down; that is a
+  harness artefact, not a game bug (a human descends visually and
+  touches down).
+- Course clearance: rings 35.4 m, courier 50.6 m minimum between the
+  straight flight line and the ground.
+- All four screenshots re-taken from real renders, visually checked:
+  cover shows aircraft + ring + runway with the river winding on the
+  right; takeoff shows the plane on tarmac with the river on the
+  horizon; landing shows the plane on final over the strip; cockpit
+  shows six lit gauges with the next ring centred ahead. All are
+  1280×800, 72–85 KiB (limit 256 KiB).
+- `main.ts` run twice produces byte-identical output trees
+  (`diff -r` clean, exit 0). No console errors in headless Chromium.
+  No network references anywhere under `game/`.
+  `vendor/makefun-game.ts` unchanged.

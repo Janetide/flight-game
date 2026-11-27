@@ -123,7 +123,13 @@ export function stepPlane(p, ctl, dt) {
   }
 
   // --- heading: bank turns the plane, rudder nudges it ---
-  const turnRate = p.roll * TURN_FACTOR * (p.speed / CRUISE_SPEED) + ctl.rudder * RUDDER_RATE;
+  // A slower plane turns tighter: turn rate falls as speed rises, the way
+  // a real wing works (rate ~ g·tan(bank)/speed). The old model had it
+  // backwards — rate growing with speed — so the approach circuit at
+  // 120 km/h turned wider than the cruise at 220 km/h and the base turn
+  // overshot the final every time.
+  const turnAuthority = clamp(CRUISE_SPEED / Math.max(p.speed, 25), 0.7, 1.6);
+  const turnRate = p.roll * TURN_FACTOR * turnAuthority + ctl.rudder * RUDDER_RATE;
   p.heading = (p.heading + turnRate * dt + 360) % 360;
 
   // --- motion ---

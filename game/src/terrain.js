@@ -7,6 +7,27 @@ import { createRandom, fbm } from './random.js';
 
 const NOISE_SEED = WORLD_SEED;
 
+/** The river's centreline: a winding course down the east side of the valley. */
+export function riverX(z) {
+  return 650 + 250 * Math.sin(z * 0.00035 + 2.0) + 60 * Math.sin(z * 0.0011 + 0.5);
+}
+
+/** A still lake in the north-east, where the valley floor is low. */
+export const LAKE = { x: 820, z: -1600, rx: 430, ry: 270, elevation: 150 };
+
+/** True if the point is on the still lake. */
+export function lakeAt(x, z) {
+  const ex = (x - LAKE.x) / LAKE.rx;
+  const ez = (z - LAKE.z) / LAKE.ry;
+  return ex * ex + ez * ez < 1;
+}
+
+/** True if the point is open water (river or lake). */
+export function waterAt(x, z) {
+  if (Math.abs(x - riverX(z)) < 26 && z > -7000 && z < 5200) return true;
+  return lakeAt(x, z);
+}
+
 /** Height of the bare terrain at world (x, z), in metres. */
 export function baseHeight(x, z) {
   // A wide valley runs along the z axis: low in the middle, rising to
@@ -16,7 +37,12 @@ export function baseHeight(x, z) {
   const hills = fbm(x * 0.0011, z * 0.0011, NOISE_SEED, 4) * 130;
   const bumps = fbm(x * 0.004 + 7, z * 0.004 + 3, NOISE_SEED + 55, 3) * 26;
   const endRise = Math.pow(Math.max(0, Math.abs(z - 600) / 4200), 2) * 260;
-  return 118 + wall + hills + bumps + endRise;
+  // Ridged character away from the centreline: the valley walls are not
+  // smooth slopes but a chain of spurs. Fades to nothing near the runway
+  // and the course, so the flying line stays as the missions expect.
+  const ridgeMask = Math.min(1, Math.max(0, (Math.abs(x) - 500) / 900));
+  const ridge = (1 - Math.abs(fbm(x * 0.0006 + 31, z * 0.0006 + 17, NOISE_SEED + 99, 3))) * 110;
+  return 118 + wall + hills + bumps + endRise + ridge * ridgeMask;
 }
 
 /** True if the point is on the flattened runway strip. */
@@ -58,6 +84,19 @@ export function groundHeight(x, z) {
     const cf = (1 - across) * along;
     if (cf > 0) ground = Math.min(ground, RUNWAY.elevation + (ground - RUNWAY.elevation) * (1 - cf));
   }
+  // River channel: carve a shallow bed along the river so the water sits
+  // in the ground instead of draping over the hills. Never near the
+  // runway — the river runs east of the approach corridor.
+  const rd = Math.abs(x - riverX(z));
+  if (rd < 55) {
+    const t = 1 - rd / 55;
+    ground = Math.min(ground, 120 + (ground - 120) * (1 - t * t));
+  }
+  // Lake basin: settle the ground inside the ellipse toward still water.
+  const ex = (x - LAKE.x) / LAKE.rx;
+  const ez = (z - LAKE.z) / LAKE.ry;
+  const le = ex * ex + ez * ez;
+  if (le < 1) ground = LAKE.elevation + (ground - LAKE.elevation) * le * le;
   return ground;
 }
 
@@ -83,6 +122,7 @@ export function buildScenery(seed) {
     const h = baseHeight(x, z);
     if (h > 380 || h < 126) continue;
     if (onRunway(x, z)) continue;
+    if (waterAt(x, z)) continue;
     trees.push({ x, z, h, s: 6 + rnd() * 9 });
   }
   const houses = [];
@@ -98,16 +138,43 @@ export function buildScenery(seed) {
       houses.push({ x, z, h: groundHeight(x, z), w: 12 + rnd() * 10, d: 10 + rnd() * 8 });
     }
   }
+  // Riverside town: a longer strip of bigger houses along the river east
+  // of the runway, so the valley has a settlement you can actually pick
+  // out from the air — and a lakeside hamlet by the still water.
+  for (let i = 0; i < 26; i++) {
+    const z = 300 + i * 55 + (rnd() * 2 - 1) * 30;
+    const x = riverX(z) - 90 - rnd() * 120;
+    if (waterAt(x, z)) continue;
+    houses.push({ x, z, h: groundHeight(x, z), w: 16 + rnd() * 14, d: 12 + rnd() * 10 });
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = rnd() * Math.PI * 2;
+    const x = LAKE.x + Math.cos(a) * (LAKE.rx + 40 + rnd() * 60);
+    const z = LAKE.z + Math.sin(a) * (LAKE.ry + 40 + rnd() * 60);
+    if (waterAt(x, z)) continue;
+    houses.push({ x, z, h: groundHeight(x, z), w: 14 + rnd() * 10, d: 10 + rnd() * 8 });
+  }
   const clouds = [];
-  for (let i = 0; i < 42; i++) {
+  for (let i = 0; i < 48; i++) {
     clouds.push({
       x: (rnd() * 2 - 1) * 5200,
       y: 620 + rnd() * 420,
       z: (rnd() * 2 - 1) * 5200 + 600,
-      r: 90 + rnd() * 190,
+      r: 140 + rnd() * 180,
     });
   }
   return { trees, houses, clouds };
+}
+
+/** Highest ground along the straight leg from `from` to `to`. */
+function legTop(from, to) {
+  let top = -Infinity;
+  for (let k = 0; k <= 24; k++) {
+    const t = k / 24;
+    const g = groundHeight(from.x + (to.x - from.x) * t, from.z + (to.z - from.z) * t);
+    if (g > top) top = g;
+  }
+  return top;
 }
 
 /** Ring and gate courses, laid out over the valley in flight order. */
@@ -124,14 +191,17 @@ export function ringCourse(count, seed) {
     { x: 250, y: 340, z: -5800 },
     { x: 0, y: 280, z: -6600 },
   ];
+  let from = { x: 0, y: RUNWAY.elevation + 60, z: RUNWAY.cz + RUNWAY.length / 2 };
   for (let i = 0; i < count; i++) {
     const base = starts[i % starts.length];
     const bx = base.x + (rnd() * 2 - 1) * 60;
     const bz = base.z + (rnd() * 2 - 1) * 60;
     // The valley floor rises steeply to the north, so a fixed altitude
     // would bury the later rings inside the mountains. Each ring sits
-    // 55–70 m above its own ground instead.
-    const by = groundHeight(bx, bz) + 55 + rnd() * 15;
+    // above the highest ground on the whole leg that reaches it — not
+    // just the ground under it — so the straight line between two rings
+    // never clips a ridge in between.
+    const by = legTop(from, { x: bx, z: bz }) + 65 + rnd() * 10;
     rings.push({
       x: bx,
       y: by,
@@ -139,6 +209,7 @@ export function ringCourse(count, seed) {
       r: 55,
       passed: false,
     });
+    from = { x: bx, y: by, z: bz };
   }
   return rings;
 }
@@ -154,13 +225,14 @@ export function gateCourse(count, seed) {
     { x: -150, y: 360, z: -4100 },
     { x: 450, y: 300, z: -5200 },
   ];
+  let from = { x: 0, y: RUNWAY.elevation + 60, z: RUNWAY.cz + RUNWAY.length / 2 };
   for (let i = 0; i < count; i++) {
     const base = path[i % path.length];
     const bx = base.x + (rnd() * 2 - 1) * 40;
     const bz = base.z + (rnd() * 2 - 1) * 40;
-    // Same rule as the rings: sit above the local ground, not at a fixed
-    // altitude — the valley floor rises to the north.
-    const by = groundHeight(bx, bz) + 50 + rnd() * 12;
+    // Same rule as the rings: clear the highest ground on the leg, not
+    // just the ground under the gate.
+    const by = legTop(from, { x: bx, z: bz }) + 60 + rnd() * 10;
     gates.push({
       x: bx,
       y: by,
@@ -168,6 +240,7 @@ export function gateCourse(count, seed) {
       r: 48,
       passed: false,
     });
+    from = { x: bx, y: by, z: bz };
   }
   return gates;
 }

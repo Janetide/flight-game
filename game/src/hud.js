@@ -94,6 +94,7 @@ function drawSpeedTape(ctx, w, h, speed, s, plane) {
     if (v < 0) continue;
     const yy = y - (v - kmh) * pxPer;
     ctx.strokeStyle = 'rgba(232,242,255,0.5)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x + 8 * s, yy);
     ctx.lineTo(x + 20 * s, yy);
@@ -111,8 +112,13 @@ function drawSpeedTape(ctx, w, h, speed, s, plane) {
   ctx.font = `bold ${17 * s}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText(String(Math.round(kmh)), x + 37 * s, y + 1 * s);
-  ctx.fillStyle = '#9fb6cc';
-  ctx.font = `${11 * s}px system-ui, sans-serif`;
+  // The unit label sits on a dark pill, not bare sky: pale grey on blue
+  // washes out in a screenshot.
+  ctx.fillStyle = 'rgba(8,16,26,0.75)';
+  roundRect(ctx, x + 12 * s, y - height / 2 - 26 * s, 50 * s, 16 * s, 5 * s);
+  ctx.fill();
+  ctx.fillStyle = '#e8f2ff';
+  ctx.font = `bold ${11 * s}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText('km/h', x + 37 * s, y - height / 2 - 12 * s);
 }
@@ -134,6 +140,7 @@ function drawAltitudeTape(ctx, w, h, alt, s, plane) {
     if (v < 0) continue;
     const yy = y - (v - alt) * pxPer;
     ctx.strokeStyle = 'rgba(232,242,255,0.5)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x + 54 * s, yy);
     ctx.lineTo(x + 66 * s, yy);
@@ -151,8 +158,13 @@ function drawAltitudeTape(ctx, w, h, alt, s, plane) {
   ctx.font = `bold ${17 * s}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText(String(Math.round(alt)), x + 37 * s, y + 1 * s);
-  ctx.fillStyle = '#9fb6cc';
-  ctx.font = `${11 * s}px system-ui, sans-serif`;
+  // Dark pill behind the unit label, same as the speed tape: pale grey
+  // on bare sky washes out in a screenshot.
+  ctx.fillStyle = 'rgba(8,16,26,0.75)';
+  roundRect(ctx, x + 12 * s, y - height / 2 - 26 * s, 50 * s, 16 * s, 5 * s);
+  ctx.fill();
+  ctx.fillStyle = '#e8f2ff';
+  ctx.font = `bold ${11 * s}px system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.fillText('ALT m', x + 37 * s, y - height / 2 - 12 * s);
   // Vertical speed arrow under the altitude box.
